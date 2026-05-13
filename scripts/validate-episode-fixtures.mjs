@@ -1,18 +1,16 @@
+import crypto from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import Ajv2020 from 'ajv/dist/2020.js';
 
 const root = process.cwd();
 const fixtureRoot = path.join(root, 'fixtures', 'episode-results');
-const requiredTopLevelFields = [
-	'schema_version',
-	'scenario',
-	'environment',
-	'steps',
-	'result',
-	'provenance',
-	'artifacts',
-];
+const validRoot = path.join(fixtureRoot, 'valid');
+const invalidRoot = path.join(fixtureRoot, 'invalid');
+const schemaPath = path.join(root, 'schemas', 'episode-result.schema.json');
+const hashPattern = /^sha256:[0-9a-f]{64}$/;
+const graderTools = new Set(['php_grader']);
 
 function assert(condition, message) {
 	if (!condition) {
@@ -20,98 +18,198 @@ function assert(condition, message) {
 	}
 }
 
-function assertObject(value, label) {
-	assert(value && typeof value === 'object' && !Array.isArray(value), `${label} must be an object`);
+function normalizePath(value) {
+	return value.replace(/\\/g, '/');
 }
 
-function assertString(value, label) {
-	assert(typeof value === 'string' && value.length > 0, `${label} must be a non-empty string`);
+function resolveFrom(baseFile, candidate) {
+	return normalizePath(path.relative(root, path.resolve(root, path.dirname(baseFile), candidate)));
 }
 
-function assertStringArray(value, label) {
-	assert(Array.isArray(value), `${label} must be an array`);
-	for (const entry of value) {
-		assertString(entry, `${label} entry`);
-	}
+function sha256(content) {
+	return `sha256:${crypto.createHash('sha256').update(content).digest('hex')}`;
 }
 
-async function listFixtureFiles() {
-	if (!existsSync(fixtureRoot)) {
+async function fileSha256(relativePath) {
+	return sha256(await readFile(path.join(root, relativePath)));
+}
+
+async function listJsonFiles(dir, relativeDir) {
+	if (!existsSync(dir)) {
 		return [];
 	}
 
-	const entries = await readdir(fixtureRoot, { withFileTypes: true });
+	const entries = await readdir(dir, { withFileTypes: true });
+	const files = [];
 
-	return entries
-		.filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
-		.map((entry) => path.join('fixtures', 'episode-results', entry.name))
-		.sort();
-}
-
-function validateStep(file, step, index) {
-	assertObject(step, `${file} steps[${index}]`);
-	assert(step.index === index, `${file} steps[${index}].index must match its array position`);
-	assertString(step.actor, `${file} steps[${index}].actor`);
-	assertObject(step.observation, `${file} steps[${index}].observation`);
-	assertString(step.observation.reset_hash, `${file} steps[${index}].observation.reset_hash`);
-	assertObject(step.action, `${file} steps[${index}].action`);
-	assertString(step.action.tool, `${file} steps[${index}].action.tool`);
-	assertObject(step.result, `${file} steps[${index}].result`);
-	assertString(step.result.status, `${file} steps[${index}].result.status`);
-	assert(typeof step.reward === 'number', `${file} steps[${index}].reward must be a number`);
-	assertStringArray(step.failure_reasons, `${file} steps[${index}].failure_reasons`);
-	assertObject(step.artifacts, `${file} steps[${index}].artifacts`);
-	assertObject(step.provenance, `${file} steps[${index}].provenance`);
-}
-
-function validateEpisode(file, episode) {
-	assertObject(episode, file);
-
-	for (const field of requiredTopLevelFields) {
-		assert(Object.hasOwn(episode, field), `${file} missing required top-level field: ${field}`);
+	for (const entry of entries) {
+		const fullPath = path.join(dir, entry.name);
+		const relativePath = path.join(relativeDir, entry.name);
+		if (entry.isDirectory()) {
+			files.push(...await listJsonFiles(fullPath, relativePath));
+		} else if (entry.isFile() && entry.name.endsWith('.json')) {
+			files.push(normalizePath(relativePath));
+		}
 	}
 
-	assert(Number.isInteger(episode.schema_version) && episode.schema_version > 0, `${file} schema_version must be a positive integer`);
-	assertObject(episode.scenario, `${file} scenario`);
-	assertString(episode.scenario.id, `${file} scenario.id`);
-	assertString(episode.scenario.manifest_sha256, `${file} scenario.manifest_sha256`);
-	assertString(episode.scenario.prompt_sha256, `${file} scenario.prompt_sha256`);
-	assertString(episode.scenario.grader_sha256, `${file} scenario.grader_sha256`);
-	assertString(episode.scenario.reset_hash, `${file} scenario.reset_hash`);
+	return files.sort();
+}
 
-	assertObject(episode.environment, `${file} environment`);
-	assertString(episode.environment.action_mode, `${file} environment.action_mode`);
-	assertStringArray(episode.environment.observation_channels, `${file} environment.observation_channels`);
-	assertStringArray(episode.environment.allowed_tools, `${file} environment.allowed_tools`);
+async function scenarioFiles(dir = path.join(root, 'scenarios'), relativeDir = 'scenarios') {
+	return listJsonFiles(dir, relativeDir);
+}
 
-	assert(Array.isArray(episode.steps) && episode.steps.length > 0, `${file} steps must include at least one step`);
-	episode.steps.forEach((step, index) => validateStep(file, step, index));
+async function loadScenarios() {
+	const scenarios = new Map();
 
-	assertObject(episode.result, `${file} result`);
-	assert(typeof episode.result.success === 'boolean', `${file} result.success must be a boolean`);
-	assert(typeof episode.result.reward === 'number', `${file} result.reward must be a number`);
-	assert(typeof episode.result.terminated === 'boolean', `${file} result.terminated must be a boolean`);
-	assert(typeof episode.result.truncated === 'boolean', `${file} result.truncated must be a boolean`);
+	for (const file of await scenarioFiles()) {
+		const scenario = JSON.parse(await readFile(path.join(root, file), 'utf8'));
+		scenarios.set(scenario.id, {
+			file,
+			manifest: scenario,
+			promptFile: resolveFrom(file, scenario.prompt_file),
+			graderFile: resolveFrom(file, scenario.grader_file),
+		});
+	}
+
+	return scenarios;
+}
+
+function assertHash(value, label) {
+	assert(typeof value === 'string' && hashPattern.test(value), `${label} must match sha256:<64 lowercase hex>`);
+}
+
+function assertArrayEqual(actual, expected, label) {
+	assert(Array.isArray(actual), `${label} must be an array`);
+	assert(Array.isArray(expected), `${label} expected value must be an array`);
 	assert(
-		episode.result.truncated === false || typeof episode.result.truncation_reason === 'string',
-		`${file} result.truncated=true must include truncation_reason`
+		JSON.stringify(actual) === JSON.stringify(expected),
+		`${label} must match scenario manifest; expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`
 	);
-	assertStringArray(episode.result.failure_reasons, `${file} result.failure_reasons`);
-	assertObject(episode.result.grade, `${file} result.grade`);
-	assert(Array.isArray(episode.result.grade.checks), `${file} result.grade.checks must be an array`);
+}
 
-	assertObject(episode.provenance, `${file} provenance`);
-	for (const field of ['wp_gym_ref', 'runner_ref', 'wordpress_version', 'php_version']) {
-		assertString(episode.provenance[field], `${file} provenance.${field}`);
+function localArtifactPaths(artifacts) {
+	const paths = [];
+	if (!artifacts || typeof artifacts !== 'object' || Array.isArray(artifacts)) {
+		return paths;
 	}
-	assertObject(episode.artifacts, `${file} artifacts`);
+
+	for (const value of Object.values(artifacts)) {
+		if (typeof value !== 'string' || value.length === 0) {
+			continue;
+		}
+		if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
+			continue;
+		}
+		paths.push(value);
+	}
+
+	return paths;
 }
 
-const files = await listFixtureFiles();
-assert(files.length > 0, 'Expected at least one episode result fixture.');
-
-for (const file of files) {
-	validateEpisode(file, JSON.parse(await readFile(path.join(root, file), 'utf8')));
+function expectedFailureReasons(checks) {
+	return [
+		...new Set(
+			checks
+				.filter((check) => check && typeof check === 'object' && check.passed === false)
+				.map((check) => check.failure_reason || check.id)
+				.filter(Boolean)
+		),
+	].sort();
 }
 
-console.log(`Validated ${files.length} episode result fixture(s).`);
+async function validateEpisode(file, episode, scenarios, validateSchema) {
+	const valid = validateSchema(episode);
+	if (!valid) {
+		throw new Error(`${file} schema errors: ${validateSchema.errors.map((error) => `${error.instancePath || '/'} ${error.message}`).join('; ')}`);
+	}
+
+	const scenario = scenarios.get(episode.scenario.id);
+	assert(scenario, `${file} references unknown scenario id: ${episode.scenario.id}`);
+
+	assertHash(episode.scenario.manifest_sha256, `${file} scenario.manifest_sha256`);
+	assertHash(episode.scenario.prompt_sha256, `${file} scenario.prompt_sha256`);
+	assertHash(episode.scenario.grader_sha256, `${file} scenario.grader_sha256`);
+	assertHash(episode.scenario.reset_hash, `${file} scenario.reset_hash`);
+	assert(episode.scenario.manifest_sha256 === await fileSha256(scenario.file), `${file} scenario.manifest_sha256 does not match ${scenario.file}`);
+	assert(episode.scenario.prompt_sha256 === await fileSha256(scenario.promptFile), `${file} scenario.prompt_sha256 does not match ${scenario.promptFile}`);
+	assert(episode.scenario.grader_sha256 === await fileSha256(scenario.graderFile), `${file} scenario.grader_sha256 does not match ${scenario.graderFile}`);
+
+	const environment = scenario.manifest.environment;
+	assert(episode.environment.action_mode === environment.action_mode, `${file} environment.action_mode must match scenario manifest`);
+	assertArrayEqual(episode.environment.observation_channels, environment.observation_channels, `${file} environment.observation_channels`);
+	assertArrayEqual(episode.environment.allowed_tools, environment.allowed_tools, `${file} environment.allowed_tools`);
+	assertArrayEqual(episode.environment.writable_roots, environment.writable_roots, `${file} environment.writable_roots`);
+	assertArrayEqual(episode.environment.hidden_paths, environment.hidden_paths, `${file} environment.hidden_paths`);
+
+	const [minReward, maxReward] = scenario.manifest.reward_spec.reward_range;
+	assert(episode.result.reward >= minReward && episode.result.reward <= maxReward, `${file} result.reward must be within scenario reward_range`);
+	assert(episode.result.grade.max_score > 0, `${file} result.grade.max_score must be positive`);
+	assert(episode.result.grade.score >= 0 && episode.result.grade.score <= episode.result.grade.max_score, `${file} result.grade.score must be within grade bounds`);
+
+	const normalizedReward = Number((episode.result.grade.score / episode.result.grade.max_score).toFixed(6));
+	assert(Math.abs(episode.result.reward - normalizedReward) < 0.000001, `${file} result.reward must equal normalized grade score`);
+	assert(
+		episode.result.success === (episode.result.reward >= scenario.manifest.reward_spec.success_threshold),
+		`${file} result.success must match reward_spec.success_threshold`
+	);
+
+	const failedReasons = expectedFailureReasons(episode.result.grade.checks);
+	assertArrayEqual([...episode.result.failure_reasons].sort(), failedReasons, `${file} result.failure_reasons`);
+
+	for (const artifactPath of localArtifactPaths(episode.artifacts)) {
+		assert(existsSync(path.join(root, artifactPath)), `${file} artifact path does not exist: ${artifactPath}`);
+	}
+
+	episode.steps.forEach((step, index) => {
+		assert(step.index === index, `${file} steps[${index}].index must equal its position`);
+		assert(step.observation.reset_hash === episode.scenario.reset_hash, `${file} steps[${index}].observation.reset_hash must match scenario.reset_hash`);
+		assert(step.reward >= minReward && step.reward <= maxReward, `${file} steps[${index}].reward must be within scenario reward_range`);
+
+		if (step.actor === 'agent') {
+			assert(episode.environment.allowed_tools.includes(step.action.tool), `${file} steps[${index}].action.tool is not allowed: ${step.action.tool}`);
+		} else if (step.actor === 'grader') {
+			assert(graderTools.has(step.action.tool), `${file} steps[${index}].grader action.tool is not recognized: ${step.action.tool}`);
+		}
+
+		if (step.action.args_sha256 !== null && step.action.args_sha256 !== undefined) {
+			assertHash(step.action.args_sha256, `${file} steps[${index}].action.args_sha256`);
+		}
+		if (step.result.workspace_diff_sha256 !== null && step.result.workspace_diff_sha256 !== undefined) {
+			assertHash(step.result.workspace_diff_sha256, `${file} steps[${index}].result.workspace_diff_sha256`);
+		}
+		for (const artifactPath of localArtifactPaths(step.artifacts)) {
+			assert(existsSync(path.join(root, artifactPath)), `${file} steps[${index}] artifact path does not exist: ${artifactPath}`);
+		}
+	});
+}
+
+async function main() {
+	const schema = JSON.parse(await readFile(schemaPath, 'utf8'));
+	const ajv = new Ajv2020({ allErrors: true, strict: false });
+	const validateSchema = ajv.compile(schema);
+	const scenarios = await loadScenarios();
+	const validFiles = await listJsonFiles(validRoot, 'fixtures/episode-results/valid');
+	const invalidFiles = await listJsonFiles(invalidRoot, 'fixtures/episode-results/invalid');
+
+	assert(validFiles.length > 0, 'Expected at least one valid episode result fixture.');
+	assert(invalidFiles.length > 0, 'Expected at least one invalid episode result fixture.');
+
+	for (const file of validFiles) {
+		await validateEpisode(file, JSON.parse(await readFile(path.join(root, file), 'utf8')), scenarios, validateSchema);
+	}
+
+	for (const file of invalidFiles) {
+		try {
+			await validateEpisode(file, JSON.parse(await readFile(path.join(root, file), 'utf8')), scenarios, validateSchema);
+		} catch (error) {
+			console.log(`Rejected invalid fixture ${file}: ${error.message}`);
+			continue;
+		}
+		throw new Error(`${file} was expected to be invalid but passed validation`);
+	}
+
+	console.log(`Validated ${validFiles.length} valid and ${invalidFiles.length} invalid episode result fixture(s).`);
+}
+
+await main();

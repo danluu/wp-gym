@@ -3,6 +3,8 @@
   "label": "First live side-by-side task set",
   "issue": "https://github.com/Automattic/wp-gym/issues/18",
   "description": "A small, stable set of WordPress tasks for the first live side-by-side run.",
+  "benchmark_status": "pilot",
+  "headline_score_eligible": false,
   "scenario_manifests": [
     "../scenarios/site-building/community-garden.json",
     "../scenarios/block-markup/no-fallback-pricing-section.json",

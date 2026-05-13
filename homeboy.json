@@ -50,7 +50,10 @@
             "node --check scripts/validate-scenarios.mjs",
             "node --check scripts/resolve-live-run-matrix.mjs",
             "node --check scripts/validate-episode-fixtures.mjs",
-            "jq empty homeboy.json tasks/smoke-homepage/manifest.json blueprints/smoke-homepage.json bundle-validator.json schemas/scenario.schema.json schemas/episode-result.schema.json fixtures/episode-results/modern-api-pass.json bundles/datamachine-task-runner/manifest.json bundles/datamachine-task-runner/flows/wordpress-task-runner-flow.json bundles/datamachine-task-runner/pipelines/wordpress-task-runner-pipeline.json task-sets/first-live-run.json"
+            "node --check scripts/check-workspace-policy.mjs",
+            "node --check scripts/test-workspace-policy.mjs",
+            "node --check scripts/validate-reward-fixtures.mjs",
+            "jq empty homeboy.json tasks/smoke-homepage/manifest.json blueprints/smoke-homepage.json bundle-validator.json schemas/scenario.schema.json schemas/episode-result.schema.json fixtures/episode-results/valid/modern-api-pass.json fixtures/episode-results/invalid/adversarial-wordpress-tool-policy-bypass.json fixtures/episode-results/invalid/semantic-tool-reward-mismatch.json fixtures/episode-results/artifacts/modern-api-pass/grade.json fixtures/reward-hacking/block-markup/no-fallback-pricing-empty-skeleton.json bundles/datamachine-task-runner/manifest.json bundles/datamachine-task-runner/flows/wordpress-task-runner-flow.json bundles/datamachine-task-runner/pipelines/wordpress-task-runner-pipeline.json task-sets/first-live-run.json"
         ],
     "test": [
       "npm test"

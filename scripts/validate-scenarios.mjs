@@ -2,6 +2,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { existsSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
+import Ajv2020 from 'ajv/dist/2020.js';
 
 const root = process.cwd();
 const scenarioRoot = path.join(root, 'scenarios');
@@ -28,6 +29,9 @@ const knownCompletionPolicies = new Set(['agent_final_response', 'explicit_final
 const knownTerminationPolicies = new Set(['terminal_grader']);
 const knownTruncationPolicies = new Set(['budget']);
 const knownRewardTypes = new Set(['terminal_php_grader']);
+const knownCalibrationStatuses = new Set(['demo', 'pilot', 'calibrating', 'benchmark_ready', 'excluded']);
+const knownBenchmarkScopes = new Set(['demo', 'pilot', 'calibration', 'benchmark', 'excluded']);
+const knownDifficultyBands = new Set(['uncalibrated', 'smoke', 'easy', 'medium', 'hard']);
 
 function assertObject(value, label) {
 	if (!value || Array.isArray(value) || typeof value !== 'object') {
@@ -250,6 +254,26 @@ function validateScenarioContract(file, manifest) {
 		minItems: 1,
 		pattern: /^[a-z0-9_]+$/,
 	});
+
+	assertObject(manifest.calibration, `${file} calibration`);
+	assertKnown(manifest.calibration.status, knownCalibrationStatuses, `${file} calibration.status`);
+	assertKnown(manifest.calibration.benchmark_scope, knownBenchmarkScopes, `${file} calibration.benchmark_scope`);
+	assertKnown(manifest.calibration.difficulty_band, knownDifficultyBands, `${file} calibration.difficulty_band`);
+	if (typeof manifest.calibration.headline_score_eligible !== 'boolean') {
+		throw new Error(`${file} calibration.headline_score_eligible must be a boolean`);
+	}
+	assertStringArray(manifest.calibration.baseline_result_sets, `${file} calibration.baseline_result_sets`);
+	assertStringArray(manifest.calibration.known_shortcuts, `${file} calibration.known_shortcuts`, {
+		pattern: /^[a-z0-9_]+$/,
+	});
+	if (manifest.calibration.status === 'benchmark_ready') {
+		if (!manifest.calibration.headline_score_eligible) {
+			throw new Error(`${file} benchmark_ready scenarios must be headline_score_eligible`);
+		}
+		if (manifest.calibration.baseline_result_sets.length < 1) {
+			throw new Error(`${file} benchmark_ready scenarios must declare baseline_result_sets`);
+		}
+	}
 }
 
 async function listScenarioFiles(dir, relativeDir = 'scenarios') {
@@ -273,6 +297,10 @@ async function listScenarioFiles(dir, relativeDir = 'scenarios') {
 const files = await listScenarioFiles(scenarioRoot);
 const scenarioIdsByManifest = new Map();
 const scenarioManifestsById = new Map();
+const ajv = new Ajv2020({ allErrors: true, strict: false });
+const validateScenarioSchema = ajv.compile(
+	JSON.parse(await readFile(path.join(root, 'schemas/scenario.schema.json'), 'utf8'))
+);
 
 if (files.length < 2) {
 	throw new Error(`Expected at least 2 scenario manifests, found ${files.length}`);
@@ -281,6 +309,10 @@ if (files.length < 2) {
 for (const file of files) {
 	const manifest = JSON.parse(await readFile(path.join(root, file), 'utf8'));
 	scenarioIdsByManifest.set(file, manifest.id);
+
+	if (!validateScenarioSchema(manifest)) {
+		throw new Error(`${file} schema errors: ${validateScenarioSchema.errors.map((error) => `${error.instancePath || '/'} ${error.message}`).join('; ')}`);
+	}
 
 	for (const field of ['id', 'label', 'prompt_file', 'grader_file']) {
 		if (!manifest[field]) {
@@ -349,6 +381,16 @@ for (const file of taskSetFiles) {
 
 	if (!Array.isArray(manifest.scenario_manifests) || manifest.scenario_manifests.length < 1) {
 		throw new Error(`${file} must include at least one scenario manifest`);
+	}
+
+	if (manifest.benchmark_status !== undefined) {
+		assertKnown(manifest.benchmark_status, knownCalibrationStatuses, `${file} benchmark_status`);
+	}
+	if (
+		manifest.headline_score_eligible !== undefined &&
+		typeof manifest.headline_score_eligible !== 'boolean'
+	) {
+		throw new Error(`${file} headline_score_eligible must be a boolean`);
 	}
 
 	if (!Array.isArray(manifest.tasks) || manifest.tasks.length < 1) {

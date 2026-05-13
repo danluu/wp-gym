@@ -52,6 +52,14 @@
     "success_threshold": 1,
     "reward_range": [0, 1]
   },
+  "calibration": {
+    "status": "pilot",
+    "benchmark_scope": "pilot",
+    "difficulty_band": "uncalibrated",
+    "headline_score_eligible": false,
+    "baseline_result_sets": [],
+    "known_shortcuts": ["hard_coded_clean_site_state", "extra_output_fields"]
+  },
   "expected_artifacts": ["workspace_diff", "plugin_files", "grader_result"],
   "expected": {
     "route": "/site-tools/v1/status",

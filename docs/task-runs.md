@@ -153,6 +153,11 @@ The first live side-by-side task set is `task-sets/first-live-run.json`. It pins
 three existing scenario manifests so the run can be repeated without relying on
 the broader scenario directory order.
 
+This task set is a mixed pilot, not a headline benchmark. The current site and
+block-markup rows are useful for live-run coverage, but they are not
+benchmark-eligible until their WordPress action surface, calibration baselines,
+and adversarial reward fixtures are represented in the manifests and artifacts.
+
 Selected tasks:
 
 - `site-building-community-garden`: Marshside Community Garden site-building request.
@@ -222,8 +227,8 @@ To trigger the first live run:
 3. Keep `task_set` as `first-live-run` to run the merged live task set, switch to
    `smoke` for the smallest wiring check, or enter `task_ids` as a comma-separated
    list such as `block-markup-no-fallback-pricing-section,modern-wordpress-api-abilities-site-summary`.
-4. Leave `dry_run` disabled for a live model run, or enable it to validate the
-   runner config without provider calls.
+4. Leave `dry_run` enabled to validate the runner config without provider calls,
+   or explicitly disable it for a paid live model run.
 5. Confirm repository secrets include `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`.
 6. Review the generated PRs. Each task/model that wrote workspace changes should
    have its own PR with the result summary and hidden-grade checks in the body.

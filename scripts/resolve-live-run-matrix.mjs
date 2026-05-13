@@ -75,6 +75,7 @@ function scenarioTask(scenarioFile) {
 		hiddenPaths: environment.hidden_paths || [],
 		workspaceTemplate: environment.workspace_template || '',
 		completionPolicy: environment.completion_policy || {},
+		calibration: scenario.calibration || {},
 		maxTurns: budgets.maxTurns,
 		stepBudget: budgets.stepBudget,
 		timeBudgetMs: budgets.timeBudgetMs,
@@ -99,6 +100,11 @@ function smokeTask() {
 		hiddenPaths: [],
 		workspaceTemplate: '',
 		completionPolicy: { type: 'agent_final_response' },
+		calibration: {
+			status: 'demo',
+			benchmark_scope: 'demo',
+			headline_score_eligible: false,
+		},
 		maxTurns: 8,
 		stepBudget: 12,
 		timeBudgetMs: 600000,
@@ -139,12 +145,16 @@ function workspaceConfig(task, branchSlug) {
 		return '{}';
 	}
 
+	const runPrefix = [process.env.GITHUB_RUN_ID, process.env.GITHUB_RUN_ATTEMPT]
+		.filter(Boolean)
+		.join('-');
+
 	return JSON.stringify({
 		enabled: true,
 		repo: 'wp-gym',
 		clone_url: 'https://github.com/Automattic/wp-gym.git',
 		from: process.env.GITHUB_REF_NAME || 'main',
-		branch_prefix: `agent-runs/${branchSlug}`,
+		branch_prefix: `agent-runs/${runPrefix ? `${runPrefix}/` : ''}${branchSlug}`,
 		agent_alias: 'current-project',
 		agent_root: '.agent-workspace/current-project',
 		expose_to_agent: true,
@@ -320,6 +330,9 @@ function resolveMatrix() {
 				max_turns: task.maxTurns,
 				step_budget: task.stepBudget,
 				time_budget_ms: task.timeBudgetMs,
+				calibration_status: task.calibration.status || 'unknown',
+				benchmark_scope: task.calibration.benchmark_scope || 'unknown',
+				headline_score_eligible: Boolean(task.calibration.headline_score_eligible),
 				artifact_suffix: branchSlug,
 			});
 		}
@@ -394,6 +407,10 @@ function assertLiveRunMatrix(matrix) {
 		assert(Number(row.max_turns) > 0, `${row.task_id} max_turns must be positive`);
 		assert(Number(row.step_budget) > 0, `${row.task_id} step_budget must be positive`);
 		assert(Number(row.time_budget_ms) > 0, `${row.task_id} time_budget_ms must be positive`);
+		assert(row.calibration_status === (task.calibration.status || 'unknown'), `${row.task_id} calibration_status mismatch`);
+		assert(row.benchmark_scope === (task.calibration.benchmark_scope || 'unknown'), `${row.task_id} benchmark_scope mismatch`);
+		assert(row.headline_score_eligible === Boolean(task.calibration.headline_score_eligible), `${row.task_id} headline_score_eligible mismatch`);
+		assert(row.benchmark_scope !== 'benchmark' || row.headline_score_eligible === true, `${row.task_id} benchmark rows must be headline eligible`);
 		assert(row.workload_run_after !== '[]', `${row.task_id} must run a grader`);
 
 		const pipelinePatches = parseJsonField(row, 'pipeline_step_patches');

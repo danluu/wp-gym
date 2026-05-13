@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "scenario": {
+    "id": "site-building-community-garden",
+    "manifest_sha256": "sha256:not-a-real-manifest-hash",
+    "prompt_sha256": "sha256:not-a-real-prompt-hash",
+    "grader_sha256": "sha256:not-a-real-grader-hash",
+    "seed": 0,
+    "reset_hash": "sha256:reset-a"
+  },
+  "environment": {
+    "action_mode": "wordpress",
+    "observation_channels": ["prompt", "wordpress_runtime", "block_editor"],
+    "allowed_tools": [],
+    "writable_roots": [],
+    "hidden_paths": ["graders/", "scenarios/", "checks/", "task-sets/"]
+  },
+  "steps": [
+    {
+      "index": 0,
+      "actor": "agent",
+      "observation": {
+        "reset_hash": "sha256:reset-b",
+        "channels": ["prompt"]
+      },
+      "action": {
+        "tool": "workspace_apply_patch",
+        "args_sha256": "sha256:fictional-action"
+      },
+      "result": {
+        "status": "ok",
+        "workspace_diff_sha256": "sha256:fictional-diff"
+      },
+      "reward": 1,
+      "failure_reasons": [],
+      "artifacts": {},
+      "provenance": {
+        "runner_ref": "adversarial-fixture"
+      }
+    }
+  ],
+  "result": {
+    "success": true,
+    "reward": 1,
+    "terminated": true,
+    "truncated": false,
+    "failure_reasons": [],
+    "grade": {
+      "score": 0,
+      "max_score": 1,
+      "checks": [
+        {
+          "id": "homepage_set",
+          "passed": false,
+          "score": 0,
+          "max_score": 1,
+          "failure_reason": "homepage_not_set"
+        }
+      ]
+    }
+  },
+  "provenance": {
+    "wp_gym_ref": "adversarial-fixture",
+    "runner_ref": "adversarial-fixture",
+    "wordpress_version": "6.9",
+    "php_version": "8.3",
+    "provider": "fixture",
+    "model": "fixture-model",
+    "tool_policy_sha256": "sha256:not-a-real-tool-policy-hash",
+    "bundle_sha256": "sha256:not-a-real-bundle-hash"
+  },
+  "artifacts": {}
+}

@@ -2,11 +2,11 @@
   "schema_version": 1,
   "scenario": {
     "id": "modern-wordpress-api-rest-route-status",
-    "manifest_sha256": "sha256:fixture-manifest",
-    "prompt_sha256": "sha256:fixture-prompt",
-    "grader_sha256": "sha256:fixture-grader",
+    "manifest_sha256": "sha256:d054ea8facba75196f63e51a7339cc16e1872efbd6d212f8c3231e116f38460e",
+    "prompt_sha256": "sha256:4b0af6e274ff0bff877256c6f1a27425b67144b7f48540bc0e1f753d6be6da49",
+    "grader_sha256": "sha256:7af60473280ba436575a0344373e3d0003baef5943de704b160aab7c16fb7391",
     "seed": 0,
-    "reset_hash": "sha256:fixture-reset"
+    "reset_hash": "sha256:925186864753448c211db5ff81f042b5c92fe0a2d3db77d28d993e85395c0346"
   },
   "environment": {
     "action_mode": "workspace",
@@ -30,45 +30,21 @@
       "index": 0,
       "actor": "agent",
       "observation": {
-        "reset_hash": "sha256:fixture-reset",
+        "reset_hash": "sha256:925186864753448c211db5ff81f042b5c92fe0a2d3db77d28d993e85395c0346",
         "channels": ["prompt", "workspace_tree"]
       },
       "action": {
-        "tool": "workspace_apply_patch",
-        "args_sha256": "sha256:fixture-action-0"
+        "tool": "secret_admin_shell",
+        "args_sha256": "sha256:e16d801636e81fc375eef4a2332cf791543254207ac505ccf0410b3e96d000c4"
       },
       "result": {
         "status": "ok",
-        "workspace_diff_sha256": "sha256:fixture-diff-0"
-      },
-      "reward": 0.25,
-      "failure_reasons": ["missing_rest_route"],
-      "artifacts": {
-        "workspace_diff": "artifacts/step-0.patch"
-      },
-      "provenance": {
-        "runner_ref": "fixture-runner"
-      }
-    },
-    {
-      "index": 1,
-      "actor": "grader",
-      "observation": {
-        "reset_hash": "sha256:fixture-reset",
-        "channels": ["wordpress_runtime"]
-      },
-      "action": {
-        "tool": "php_grader",
-        "args_sha256": "sha256:fixture-action-1"
-      },
-      "result": {
-        "status": "pass",
-        "workspace_diff_sha256": "sha256:fixture-diff-1"
+        "workspace_diff_sha256": "sha256:cc551ebf88f2371ec443e9a8d401dfa606237a58bd1a27d38018827ec3546b15"
       },
       "reward": 1,
       "failure_reasons": [],
       "artifacts": {
-        "grade_json": "artifacts/grade.json"
+        "workspace_diff": "fixtures/episode-results/artifacts/modern-api-pass/step-0.patch"
       },
       "provenance": {
         "runner_ref": "fixture-runner"
@@ -89,8 +65,8 @@
         {
           "id": "route_registered",
           "passed": true,
-          "score": 0.16,
-          "max_score": 0.16
+          "score": 1,
+          "max_score": 1
         }
       ]
     }
@@ -102,13 +78,13 @@
     "php_version": "8.3",
     "provider": "fixture",
     "model": "fixture-model",
-    "tool_policy_sha256": "sha256:fixture-tool-policy",
-    "bundle_sha256": "sha256:fixture-bundle"
+    "tool_policy_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "bundle_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
   },
   "artifacts": {
-    "transcript": "artifacts/transcript.jsonl",
-    "replay_bundle": "artifacts/replay.tar.gz",
-    "workspace_diff": "artifacts/final.patch",
-    "episode_jsonl": "artifacts/episode.jsonl"
+    "transcript": "fixtures/episode-results/artifacts/modern-api-pass/transcript.jsonl",
+    "replay_bundle": "fixtures/episode-results/artifacts/modern-api-pass/replay.txt",
+    "workspace_diff": "fixtures/episode-results/artifacts/modern-api-pass/final.patch",
+    "episode_jsonl": "fixtures/episode-results/artifacts/modern-api-pass/episode.jsonl"
   }
 }

@@ -51,7 +51,9 @@ jobs:
         env:
           TASK_SET: ${{ inputs.task_set }}
           TASK_IDS: ${{ inputs.task_ids }}
-        run: node scripts/resolve-live-run-matrix.mjs
+        run: |
+          npm run verify
+          node scripts/resolve-live-run-matrix.mjs
 
   live-run:
     needs: resolve-matrix

@@ -12,6 +12,7 @@
     "rules",
     "environment",
     "reward_spec",
+    "calibration",
     "expected_artifacts"
   ],
   "properties": {
@@ -105,6 +106,32 @@
           "prefixItems": [{ "type": "number" }, { "type": "number" }],
           "minItems": 2,
           "maxItems": 2
+        }
+      },
+      "additionalProperties": true
+    },
+    "calibration": {
+      "type": "object",
+      "required": [
+        "status",
+        "benchmark_scope",
+        "difficulty_band",
+        "headline_score_eligible",
+        "baseline_result_sets",
+        "known_shortcuts"
+      ],
+      "properties": {
+        "status": { "enum": ["demo", "pilot", "calibrating", "benchmark_ready", "excluded"] },
+        "benchmark_scope": { "enum": ["demo", "pilot", "calibration", "benchmark", "excluded"] },
+        "difficulty_band": { "enum": ["uncalibrated", "smoke", "easy", "medium", "hard"] },
+        "headline_score_eligible": { "type": "boolean" },
+        "baseline_result_sets": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "known_shortcuts": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z0-9_]+$" }
         }
       },
       "additionalProperties": true
