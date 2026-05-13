@@ -9,7 +9,7 @@
           "$schema": "https://playground.wordpress.net/blueprint-schema.json",
           "preferredVersions": {
             "php": "8.3",
-            "wp": "latest"
+            "wp": "6.9"
           }
         },
         "playground_scenario_manifests": [
@@ -46,10 +46,12 @@
     }
   },
   "self_checks": {
-    "lint": [
-      "node --check scripts/validate-scenarios.mjs",
-      "jq empty homeboy.json tasks/smoke-homepage/manifest.json blueprints/smoke-homepage.json bundle-validator.json bundles/datamachine-task-runner/manifest.json bundles/datamachine-task-runner/flows/wordpress-task-runner-flow.json bundles/datamachine-task-runner/pipelines/wordpress-task-runner-pipeline.json task-sets/first-live-run.json"
-    ],
+        "lint": [
+            "node --check scripts/validate-scenarios.mjs",
+            "node --check scripts/resolve-live-run-matrix.mjs",
+            "node --check scripts/validate-episode-fixtures.mjs",
+            "jq empty homeboy.json tasks/smoke-homepage/manifest.json blueprints/smoke-homepage.json bundle-validator.json schemas/scenario.schema.json schemas/episode-result.schema.json fixtures/episode-results/modern-api-pass.json bundles/datamachine-task-runner/manifest.json bundles/datamachine-task-runner/flows/wordpress-task-runner-flow.json bundles/datamachine-task-runner/pipelines/wordpress-task-runner-pipeline.json task-sets/first-live-run.json"
+        ],
     "test": [
       "npm test"
     ]

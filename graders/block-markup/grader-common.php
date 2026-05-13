@@ -166,6 +166,9 @@ function wp_gym_grade( array $checks ): array {
 		'success'         => $reward >= 1.0,
 		'reward'          => $reward,
 		'done'            => true,
+		'terminated'      => true,
+		'truncated'       => false,
+		'truncation_reason' => null,
 		'failure_reasons' => wp_gym_failure_reasons( $checks ),
 		'grade'           => array(
 			'score'     => $score,

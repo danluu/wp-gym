@@ -5,6 +5,11 @@ execution substrate. The repository supplies ordinary user/developer requests,
 task metadata, and private completion checks; Homeboy supplies the disposable
 WordPress runtime, Data Machine runner, generated code PRs, and replay artifacts.
 
+`wp-gym` is currently a terminal-grader evaluation harness, not a full
+Gymnasium-compatible RL package. The repo-owned contract is the scenario
+manifest plus the episode result schema. A future `reset`/`step` facade should be
+built on top of those sealed contracts rather than replacing them.
+
 The prototype loop is:
 
 1. `wp-gym` selects a task and model matrix.
@@ -91,6 +96,10 @@ Each task should add:
 - A Playground blueprint when the task needs a custom WordPress starting state.
 - A PHP completion check with the private WordPress quality criteria.
 - Reusable `rules.general` and scenario-specific `rules.task_specific` labels.
+- An `environment` contract matching `schemas/scenario.schema.json`: reset
+  fixture, observation channels, allowed tools, writable roots, hidden paths,
+  workspace template, completion policy, and truncation policy.
+- A `reward_spec` and `expected_artifacts` list.
 - Optional zero-weight `probes` for behavioral fingerprints.
 - A `homeboy.json` `playground_workloads` entry that wires setup and completion checks.
 
@@ -188,6 +197,11 @@ parsing the full Homeboy result JSON:
 - `metadata.fingerprints.prompt.sha256`: model-facing task prompt fingerprint.
 - `metadata.fingerprints.bundle.sha256`: Data Machine bundle fingerprint.
 - `metadata.fingerprints.tool_policy.sha256`: enabled-tools and runner-policy fingerprint.
+
+`schemas/episode-result.schema.json` defines the repo-owned episode row shape
+that downstream JSONL exports should satisfy. The generated PR body remains a
+human review surface; it should not be the only machine-readable evaluation
+record.
 
 PR comments are not required for the prototype. Comments are useful for adding a
 Homeboy report to a human-authored PR, but here the generated PR is itself the

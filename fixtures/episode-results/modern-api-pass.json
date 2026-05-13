@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "scenario": {
+    "id": "modern-wordpress-api-rest-route-status",
+    "manifest_sha256": "sha256:fixture-manifest",
+    "prompt_sha256": "sha256:fixture-prompt",
+    "grader_sha256": "sha256:fixture-grader",
+    "seed": 0,
+    "reset_hash": "sha256:fixture-reset"
+  },
+  "environment": {
+    "action_mode": "workspace",
+    "observation_channels": ["prompt", "workspace_tree", "wordpress_runtime"],
+    "allowed_tools": [
+      "workspace_show",
+      "workspace_ls",
+      "workspace_read",
+      "workspace_grep",
+      "workspace_write",
+      "workspace_edit",
+      "workspace_apply_patch",
+      "workspace_git_status",
+      "wordpress_runtime_ls"
+    ],
+    "writable_roots": ["plugins/"],
+    "hidden_paths": ["graders/", "scenarios/", "prompts/", "checks/", "task-sets/", ".github/", "docs/", "scripts/"]
+  },
+  "steps": [
+    {
+      "index": 0,
+      "actor": "agent",
+      "observation": {
+        "reset_hash": "sha256:fixture-reset",
+        "channels": ["prompt", "workspace_tree"]
+      },
+      "action": {
+        "tool": "workspace_apply_patch",
+        "args_sha256": "sha256:fixture-action-0"
+      },
+      "result": {
+        "status": "ok",
+        "workspace_diff_sha256": "sha256:fixture-diff-0"
+      },
+      "reward": 0.25,
+      "failure_reasons": ["missing_rest_route"],
+      "artifacts": {
+        "workspace_diff": "artifacts/step-0.patch"
+      },
+      "provenance": {
+        "runner_ref": "fixture-runner"
+      }
+    },
+    {
+      "index": 1,
+      "actor": "grader",
+      "observation": {
+        "reset_hash": "sha256:fixture-reset",
+        "channels": ["wordpress_runtime"]
+      },
+      "action": {
+        "tool": "php_grader",
+        "args_sha256": "sha256:fixture-action-1"
+      },
+      "result": {
+        "status": "pass",
+        "workspace_diff_sha256": "sha256:fixture-diff-1"
+      },
+      "reward": 1,
+      "failure_reasons": [],
+      "artifacts": {
+        "grade_json": "artifacts/grade.json"
+      },
+      "provenance": {
+        "runner_ref": "fixture-runner"
+      }
+    }
+  ],
+  "result": {
+    "success": true,
+    "reward": 1,
+    "terminated": true,
+    "truncated": false,
+    "truncation_reason": null,
+    "failure_reasons": [],
+    "grade": {
+      "score": 1,
+      "max_score": 1,
+      "checks": [
+        {
+          "id": "route_registered",
+          "passed": true,
+          "score": 0.16,
+          "max_score": 0.16
+        }
+      ]
+    }
+  },
+  "provenance": {
+    "wp_gym_ref": "fixture-wp-gym",
+    "runner_ref": "fixture-runner",
+    "wordpress_version": "6.9",
+    "php_version": "8.3",
+    "provider": "fixture",
+    "model": "fixture-model",
+    "tool_policy_sha256": "sha256:fixture-tool-policy",
+    "bundle_sha256": "sha256:fixture-bundle"
+  },
+  "artifacts": {
+    "transcript": "artifacts/transcript.jsonl",
+    "replay_bundle": "artifacts/replay.tar.gz",
+    "workspace_diff": "artifacts/final.patch",
+    "episode_jsonl": "artifacts/episode.jsonl"
+  }
+}

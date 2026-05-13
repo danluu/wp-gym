@@ -3,9 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "lint": "node --check scripts/validate-scenarios.mjs",
+    "lint": "node --check scripts/validate-scenarios.mjs && node --check scripts/resolve-live-run-matrix.mjs && node --check scripts/validate-episode-fixtures.mjs",
+    "matrix:live-run": "node scripts/resolve-live-run-matrix.mjs",
+    "matrix:check": "node scripts/resolve-live-run-matrix.mjs --check && TASK_SET=smoke node scripts/resolve-live-run-matrix.mjs --check && TASK_SET=all node scripts/resolve-live-run-matrix.mjs --check",
+    "episode:validate": "node scripts/validate-episode-fixtures.mjs",
     "validate": "node scripts/validate-scenarios.mjs",
-    "verify": "npm run validate",
-    "test": "npm run validate && npm run verify"
+    "verify": "npm run validate && npm run matrix:check && npm run episode:validate",
+    "test": "npm run verify"
   }
 }
