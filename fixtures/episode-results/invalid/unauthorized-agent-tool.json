@@ -52,7 +52,7 @@
         ]
       },
       "action": {
-        "tool": "workspace_apply_patch",
+        "tool": "secret_admin_shell",
         "args_sha256": "sha256:e16d801636e81fc375eef4a2332cf791543254207ac505ccf0410b3e96d000c4"
       },
       "result": {
@@ -144,5 +144,8 @@
     "replay_bundle": "sha256:c8f70af580e3b8b5dc68392388dd910affc58c2fe67a6c455b65a5d34937bd2d",
     "workspace_diff": "sha256:d31805bad663426273422c7a79da6aa29b85747767fe67f0e89d87bcb885ed4d",
     "episode_jsonl": "sha256:0483c28300dfb7d6298586f4fe95c5ebcdb843e8c2f4c6777c644f88af36b098"
-  }
+  },
+  "expected_validation_errors": [
+    "agent_tool_not_allowed"
+  ]
 }

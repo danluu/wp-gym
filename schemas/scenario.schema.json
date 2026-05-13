@@ -118,7 +118,9 @@
         "difficulty_band",
         "headline_score_eligible",
         "baseline_result_sets",
-        "known_shortcuts"
+        "known_shortcuts",
+        "task_contract_level",
+        "benchmark_blockers"
       ],
       "properties": {
         "status": { "enum": ["demo", "pilot", "calibrating", "benchmark_ready", "excluded"] },
@@ -130,6 +132,13 @@
           "items": { "type": "string", "minLength": 1 }
         },
         "known_shortcuts": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z0-9_]+$" }
+        },
+        "task_contract_level": {
+          "enum": ["wordpress_state_diagnostic", "workspace_diff_diagnostic", "benchmark_replay"]
+        },
+        "benchmark_blockers": {
           "type": "array",
           "items": { "type": "string", "pattern": "^[a-z0-9_]+$" }
         }

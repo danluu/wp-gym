@@ -11,10 +11,25 @@ const invalidRoot = path.join(fixtureRoot, 'invalid');
 const schemaPath = path.join(root, 'schemas', 'episode-result.schema.json');
 const hashPattern = /^sha256:[0-9a-f]{64}$/;
 const graderTools = new Set(['php_grader']);
+const knownActors = new Set(['agent', 'grader', 'system']);
 
-function assert(condition, message) {
+class ValidationError extends Error {
+	constructor(code, message) {
+		super(message);
+		this.validationCode = code;
+	}
+}
+
+function fail(code, message) {
+	throw new ValidationError(code, message);
+}
+
+function assert(condition, code, message = null) {
 	if (!condition) {
-		throw new Error(message);
+		if (message === null) {
+			fail('validation_error', code);
+		}
+		fail(code, message);
 	}
 }
 
@@ -107,6 +122,25 @@ function localArtifactPaths(artifacts) {
 	return paths;
 }
 
+function localArtifactEntries(artifacts) {
+	const entries = [];
+	if (!artifacts || typeof artifacts !== 'object' || Array.isArray(artifacts)) {
+		return entries;
+	}
+
+	for (const [key, value] of Object.entries(artifacts)) {
+		if (typeof value !== 'string' || value.length === 0) {
+			continue;
+		}
+		if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
+			continue;
+		}
+		entries.push([key, value]);
+	}
+
+	return entries;
+}
+
 function expectedFailureReasons(checks) {
 	return [
 		...new Set(
@@ -118,10 +152,58 @@ function expectedFailureReasons(checks) {
 	].sort();
 }
 
+function assertClose(actual, expected, code, label) {
+	assert(Math.abs(actual - expected) < 0.000001, code, `${label} expected ${expected}, got ${actual}`);
+}
+
+function gradeTotals(checks) {
+	let score = 0;
+	let maxScore = 0;
+
+	for (const check of checks) {
+		if (!check || typeof check !== 'object') {
+			continue;
+		}
+		score += Number(check.score || 0);
+		maxScore += Number(check.max_score || 0);
+	}
+
+	return {
+		score: Number(score.toFixed(6)),
+		maxScore: Number(maxScore.toFixed(6)),
+	};
+}
+
+async function validateArtifactHashes(file, artifacts, artifactHashes, label) {
+	const hashes = artifactHashes || {};
+
+	for (const [key, artifactPath] of localArtifactEntries(artifacts)) {
+		assert(
+			Object.hasOwn(hashes, key),
+			'artifact_hash_missing',
+			`${file} ${label}.${key} must declare artifact_hashes.${key}`
+		);
+		assertHash(hashes[key], `${file} ${label}.artifact_hashes.${key}`);
+		assert(
+			hashes[key] === await fileSha256(artifactPath),
+			'artifact_hash_mismatch',
+			`${file} ${label}.${key} hash does not match ${artifactPath}`
+		);
+	}
+
+	for (const key of Object.keys(hashes)) {
+		assert(
+			artifacts && Object.hasOwn(artifacts, key),
+			'artifact_hash_orphan',
+			`${file} ${label}.artifact_hashes.${key} has no matching artifact`
+		);
+	}
+}
+
 async function validateEpisode(file, episode, scenarios, validateSchema) {
 	const valid = validateSchema(episode);
 	if (!valid) {
-		throw new Error(`${file} schema errors: ${validateSchema.errors.map((error) => `${error.instancePath || '/'} ${error.message}`).join('; ')}`);
+		fail('schema_error', `${file} schema errors: ${validateSchema.errors.map((error) => `${error.instancePath || '/'} ${error.message}`).join('; ')}`);
 	}
 
 	const scenario = scenarios.get(episode.scenario.id);
@@ -157,19 +239,33 @@ async function validateEpisode(file, episode, scenarios, validateSchema) {
 	const failedReasons = expectedFailureReasons(episode.result.grade.checks);
 	assertArrayEqual([...episode.result.failure_reasons].sort(), failedReasons, `${file} result.failure_reasons`);
 
+	const totals = gradeTotals(episode.result.grade.checks);
+	assertClose(episode.result.grade.score, totals.score, 'grade_score_mismatch', `${file} result.grade.score`);
+	assertClose(episode.result.grade.max_score, totals.maxScore, 'grade_max_score_mismatch', `${file} result.grade.max_score`);
+
 	for (const artifactPath of localArtifactPaths(episode.artifacts)) {
 		assert(existsSync(path.join(root, artifactPath)), `${file} artifact path does not exist: ${artifactPath}`);
 	}
+	await validateArtifactHashes(file, episode.artifacts, episode.artifact_hashes, 'artifacts');
 
 	episode.steps.forEach((step, index) => {
+		assert(knownActors.has(step.actor), 'unknown_actor', `${file} steps[${index}].actor is not recognized: ${step.actor}`);
 		assert(step.index === index, `${file} steps[${index}].index must equal its position`);
 		assert(step.observation.reset_hash === episode.scenario.reset_hash, `${file} steps[${index}].observation.reset_hash must match scenario.reset_hash`);
 		assert(step.reward >= minReward && step.reward <= maxReward, `${file} steps[${index}].reward must be within scenario reward_range`);
 
 		if (step.actor === 'agent') {
-			assert(episode.environment.allowed_tools.includes(step.action.tool), `${file} steps[${index}].action.tool is not allowed: ${step.action.tool}`);
+			assert(
+				episode.environment.allowed_tools.includes(step.action.tool),
+				'agent_tool_not_allowed',
+				`${file} steps[${index}].action.tool is not allowed: ${step.action.tool}`
+			);
 		} else if (step.actor === 'grader') {
-			assert(graderTools.has(step.action.tool), `${file} steps[${index}].grader action.tool is not recognized: ${step.action.tool}`);
+			assert(
+				graderTools.has(step.action.tool),
+				'grader_tool_not_allowed',
+				`${file} steps[${index}].grader action.tool is not recognized: ${step.action.tool}`
+			);
 		}
 
 		if (step.action.args_sha256 !== null && step.action.args_sha256 !== undefined) {
@@ -181,7 +277,28 @@ async function validateEpisode(file, episode, scenarios, validateSchema) {
 		for (const artifactPath of localArtifactPaths(step.artifacts)) {
 			assert(existsSync(path.join(root, artifactPath)), `${file} steps[${index}] artifact path does not exist: ${artifactPath}`);
 		}
+		if (step.artifacts?.workspace_diff) {
+			assert(
+				step.result.workspace_diff_sha256 === step.artifact_hashes?.workspace_diff,
+				'artifact_hash_mismatch',
+				`${file} steps[${index}].result.workspace_diff_sha256 must match workspace_diff artifact hash`
+			);
+		}
 	});
+
+	for (let index = 0; index < episode.steps.length; index++) {
+		await validateArtifactHashes(file, episode.steps[index].artifacts, episode.steps[index].artifact_hashes, `steps[${index}].artifacts`);
+	}
+
+	const terminalGraderStep = [...episode.steps].reverse().find((step) => step.actor === 'grader');
+	if (terminalGraderStep) {
+		assertClose(terminalGraderStep.reward, episode.result.reward, 'terminal_grader_mismatch', `${file} terminal grader reward`);
+		assertArrayEqual(
+			[...terminalGraderStep.failure_reasons].sort(),
+			[...episode.result.failure_reasons].sort(),
+			`${file} terminal grader failure_reasons`
+		);
+	}
 }
 
 async function main() {
@@ -200,10 +317,19 @@ async function main() {
 	}
 
 	for (const file of invalidFiles) {
+		const episode = JSON.parse(await readFile(path.join(root, file), 'utf8'));
+		assert(
+			Array.isArray(episode.expected_validation_errors) && episode.expected_validation_errors.length > 0,
+			`${file} must declare expected_validation_errors`
+		);
 		try {
-			await validateEpisode(file, JSON.parse(await readFile(path.join(root, file), 'utf8')), scenarios, validateSchema);
+			await validateEpisode(file, episode, scenarios, validateSchema);
 		} catch (error) {
-			console.log(`Rejected invalid fixture ${file}: ${error.message}`);
+			const code = error.validationCode || 'validation_error';
+			if (!episode.expected_validation_errors.includes(code)) {
+				throw new Error(`${file} failed with ${code}, expected one of ${episode.expected_validation_errors.join(', ')}: ${error.message}`);
+			}
+			console.log(`Rejected invalid fixture ${file}: ${code} - ${error.message}`);
 			continue;
 		}
 		throw new Error(`${file} was expected to be invalid but passed validation`);

@@ -42,7 +42,9 @@
     "difficulty_band": "uncalibrated",
     "headline_score_eligible": false,
     "baseline_result_sets": [],
-    "known_shortcuts": ["keyword_stuffing", "shallow_block_validity"]
+    "known_shortcuts": ["keyword_stuffing", "shallow_block_validity"],
+    "task_contract_level": "wordpress_state_diagnostic",
+    "benchmark_blockers": ["missing_action_replay", "missing_baseline_results", "uncalibrated_difficulty"]
   },
   "expected_artifacts": ["wordpress_state", "grader_result"],
   "expected": {

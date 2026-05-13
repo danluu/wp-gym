@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -31,22 +32,52 @@ function parseGitStatusZ(output) {
 
 	for (let index = 0; index < fields.length; index += 1) {
 		const field = fields[index];
-		const status = field.slice(0, 2);
-		const firstPath = field.slice(3);
-		const paths = [firstPath];
 
-		if ((status.includes('R') || status.includes('C')) && index + 1 < fields.length) {
-			paths.push(fields[index + 1]);
-			index += 1;
+		if (field.startsWith('1 ')) {
+			const parts = field.split(' ');
+			const status = parts[1];
+			const pathValue = parts.slice(8).join(' ');
+			entries.push({
+				status,
+				path: normalizeRelativePath(pathValue, 'git status path'),
+				headMode: parts[3],
+				indexMode: parts[4],
+				worktreeMode: parts[5],
+				ignored: false,
+			});
+			continue;
 		}
 
-		for (const rawPath of paths) {
-			if (rawPath) {
-				entries.push({
-					status,
-					path: normalizeRelativePath(rawPath, 'git status path'),
-				});
+		if (field.startsWith('2 ')) {
+			const parts = field.split(' ');
+			const status = parts[1];
+			const pathValue = parts.slice(9).join(' ');
+			const originalPath = fields[index + 1] || '';
+			index += 1;
+			for (const rawPath of [pathValue, originalPath]) {
+				if (rawPath) {
+					entries.push({
+						status,
+						path: normalizeRelativePath(rawPath, 'git status path'),
+						headMode: parts[3],
+						indexMode: parts[4],
+						worktreeMode: parts[5],
+						ignored: false,
+					});
+				}
 			}
+			continue;
+		}
+
+		if (field.startsWith('? ') || field.startsWith('! ')) {
+			entries.push({
+				status: field.slice(0, 1),
+				path: normalizeRelativePath(field.slice(2), 'git status path'),
+				headMode: null,
+				indexMode: null,
+				worktreeMode: null,
+				ignored: field.startsWith('! '),
+			});
 		}
 	}
 
@@ -56,7 +87,7 @@ function parseGitStatusZ(output) {
 function gitStatus(workspaceRoot) {
 	const result = spawnSync(
 		'git',
-		['-C', workspaceRoot, 'status', '--porcelain=v1', '-z', '--untracked-files=all'],
+		['-C', workspaceRoot, 'status', '--porcelain=v2', '-z', '--untracked-files=all', '--ignored=matching'],
 		{ encoding: 'utf8' }
 	);
 
@@ -72,6 +103,34 @@ function gitStatus(workspaceRoot) {
 		ok: true,
 		error: null,
 		entries: parseGitStatusZ(result.stdout),
+	};
+}
+
+function gitTrackedModes(workspaceRoot) {
+	const result = spawnSync(
+		'git',
+		['-C', workspaceRoot, 'ls-files', '--stage', '-z'],
+		{ encoding: 'utf8' }
+	);
+
+	if (result.status !== 0) {
+		return {
+			ok: false,
+			error: `${result.stderr || result.stdout || 'git ls-files failed'}`.trim(),
+			entries: [],
+		};
+	}
+
+	return {
+		ok: true,
+		error: null,
+		entries: result.stdout.split('\0').filter(Boolean).map((record) => {
+			const match = record.match(/^([0-9]+) [0-9a-f]+ [0-9]+\t(.+)$/);
+			return {
+				mode: match?.[1] || '',
+				path: normalizeRelativePath(match?.[2] || record, 'git tracked path'),
+			};
+		}),
 	};
 }
 
@@ -96,6 +155,82 @@ function defaultPolicyFromManifest(manifest) {
 	};
 }
 
+function policySha256(policy) {
+	const normalized = {
+		writableRoots: [...(policy.writableRoots || [])].sort(),
+		hiddenPaths: [...(policy.hiddenPaths || [])].sort(),
+	};
+
+	return `sha256:${crypto.createHash('sha256').update(JSON.stringify(normalized)).digest('hex')}`;
+}
+
+function pathContainsGitMetadata(relativePath) {
+	return relativePath.split('/').includes('.git');
+}
+
+function addViolation(violations, violation) {
+	if (
+		violations.some((existing) =>
+			existing.path === violation.path &&
+			existing.reason === violation.reason &&
+			existing.status === violation.status
+		)
+	) {
+		return;
+	}
+
+	violations.push(violation);
+}
+
+function modeType(mode) {
+	return typeof mode === 'string' && mode.length >= 3 ? mode.slice(0, 3) : '';
+}
+
+function scanPath({ rootRealpath, relativePath, status, writableRootRealpaths, violations }) {
+	const absolutePath = path.join(rootRealpath, relativePath);
+
+	if (pathContainsGitMetadata(relativePath)) {
+		addViolation(violations, { path: relativePath, reason: 'nested_git_metadata', status });
+	}
+
+	if (!fs.existsSync(absolutePath)) {
+		return;
+	}
+
+	const lstat = fs.lstatSync(absolutePath);
+	if (lstat.isSymbolicLink()) {
+		addViolation(violations, { path: relativePath, reason: 'symlink', status });
+		return;
+	}
+
+	if (!lstat.isFile() && !lstat.isDirectory()) {
+		addViolation(violations, { path: relativePath, reason: 'non_regular_file', status });
+		return;
+	}
+
+	if (lstat.isFile()) {
+		const realpath = fs.realpathSync(absolutePath);
+		if (!isContainedBy(realpath, rootRealpath)) {
+			addViolation(violations, { path: relativePath, reason: 'outside_workspace', status });
+		}
+
+		if (!writableRootRealpaths.some((rootPath) => isContainedBy(realpath, rootPath.realpath))) {
+			addViolation(violations, { path: relativePath, reason: 'outside_writable_root', status });
+		}
+		return;
+	}
+
+	for (const entry of fs.readdirSync(absolutePath, { withFileTypes: true })) {
+		scanPath({
+			rootRealpath,
+			relativePath: `${relativePath}/${entry.name}`,
+			status,
+			writableRootRealpaths,
+			violations,
+		});
+	}
+}
+
 export function checkWorkspacePolicy({ workspaceRoot, manifest = null, policy = null }) {
 	const violations = [];
 	const root = path.resolve(workspaceRoot);
@@ -104,6 +239,7 @@ export function checkWorkspacePolicy({ workspaceRoot, manifest = null, policy = 
 	if (!rootRealpath) {
 		return {
 			passed: false,
+			policy_sha256: null,
 			violations: [{ path: '.', reason: 'missing_workspace_root' }],
 		};
 	}
@@ -111,6 +247,7 @@ export function checkWorkspacePolicy({ workspaceRoot, manifest = null, policy = 
 	if (!fs.existsSync(path.join(rootRealpath, '.git'))) {
 		return {
 			passed: false,
+			policy_sha256: null,
 			violations: [{ path: '.git', reason: 'missing_git_root' }],
 		};
 	}
@@ -122,6 +259,7 @@ export function checkWorkspacePolicy({ workspaceRoot, manifest = null, policy = 
 	const hiddenPaths = (effectivePolicy.hiddenPaths || []).map((entry) =>
 		normalizeRelativePath(entry, 'hidden path')
 	);
+	const policyHash = policySha256({ writableRoots, hiddenPaths });
 
 	if (writableRoots.length === 0) {
 		violations.push({ path: '.', reason: 'no_writable_roots' });
@@ -142,49 +280,85 @@ export function checkWorkspacePolicy({ workspaceRoot, manifest = null, policy = 
 	if (!status.ok) {
 		return {
 			passed: false,
+			policy_sha256: policyHash,
 			violations: [{ path: '.', reason: 'git_status_failed', detail: status.error }],
 		};
 	}
 
+	const trackedModes = gitTrackedModes(rootRealpath);
+	if (!trackedModes.ok) {
+		return {
+			passed: false,
+			policy_sha256: policyHash,
+			violations: [{ path: '.', reason: 'git_ls_files_failed', detail: trackedModes.error }],
+		};
+	}
+
+	for (const tracked of trackedModes.entries) {
+		if (tracked.mode === '120000') {
+			addViolation(violations, { path: tracked.path, reason: 'tracked_symlink', status: 'tracked' });
+		}
+		if (tracked.mode === '160000') {
+			addViolation(violations, { path: tracked.path, reason: 'gitlink', status: 'tracked' });
+		}
+	}
+
+	for (const writableRoot of writableRoots) {
+		if (!fs.existsSync(path.join(rootRealpath, writableRoot))) {
+			continue;
+		}
+		scanPath({
+			rootRealpath,
+			relativePath: writableRoot,
+			status: 'workspace_scan',
+			writableRootRealpaths,
+			violations,
+		});
+	}
+
 	for (const entry of status.entries) {
 		const relativePath = entry.path;
-		const absolutePath = path.join(rootRealpath, relativePath);
 
 		if (hiddenPaths.some((hiddenPath) => pathHasPrefix(relativePath, hiddenPath))) {
-			violations.push({ path: relativePath, reason: 'hidden_path', status: entry.status });
+			addViolation(violations, { path: relativePath, reason: 'hidden_path', status: entry.status });
 		}
 
 		if (!writableRoots.some((writableRoot) => pathHasPrefix(relativePath, writableRoot))) {
-			violations.push({ path: relativePath, reason: 'non_writable_path', status: entry.status });
+			addViolation(violations, { path: relativePath, reason: 'non_writable_path', status: entry.status });
 		}
 
-		if (fs.existsSync(absolutePath)) {
-			const lstat = fs.lstatSync(absolutePath);
-			if (lstat.isSymbolicLink()) {
-				violations.push({ path: relativePath, reason: 'symlink', status: entry.status });
-				continue;
+		if (entry.ignored) {
+			addViolation(violations, { path: relativePath, reason: 'ignored_path', status: entry.status });
+		}
+
+		for (const mode of [entry.headMode, entry.indexMode, entry.worktreeMode]) {
+			if (mode === '120000') {
+				addViolation(violations, { path: relativePath, reason: 'symlink_mode', status: entry.status });
 			}
-
-			if (!lstat.isFile() && !lstat.isDirectory()) {
-				violations.push({ path: relativePath, reason: 'non_regular_file', status: entry.status });
-				continue;
-			}
-
-			if (lstat.isFile()) {
-				const realpath = fs.realpathSync(absolutePath);
-				if (!isContainedBy(realpath, rootRealpath)) {
-					violations.push({ path: relativePath, reason: 'outside_workspace', status: entry.status });
-				}
-
-				if (!writableRootRealpaths.some((rootPath) => isContainedBy(realpath, rootPath.realpath))) {
-					violations.push({ path: relativePath, reason: 'outside_writable_root', status: entry.status });
-				}
+			if (mode === '160000') {
+				addViolation(violations, { path: relativePath, reason: 'gitlink', status: entry.status });
 			}
 		}
+		if (
+			entry.headMode &&
+			entry.indexMode &&
+			modeType(entry.headMode) !== modeType(entry.indexMode)
+		) {
+			addViolation(violations, { path: relativePath, reason: 'git_mode_change', status: entry.status });
+		}
+
+		scanPath({
+			rootRealpath,
+			relativePath,
+			status: entry.status,
+			writableRootRealpaths,
+			violations,
+		});
 	}
 
 	return {
 		passed: violations.length === 0,
+		policy_sha256: policyHash,
 		violations,
 	};
 }

@@ -12,12 +12,68 @@ function readText(file) {
 	return fs.readFileSync(path.join(root, file), 'utf8').trim();
 }
 
+function truthyEnv(value) {
+	return /^(1|true|yes)$/i.test(value || '');
+}
+
+function currentTaskSetId() {
+	return process.env.TASK_SET || 'first-live-run';
+}
+
+function explicitTaskIds() {
+	return (process.env.TASK_IDS || '')
+		.split(',')
+		.map((id) => id.trim())
+		.filter(Boolean);
+}
+
+function runSegment() {
+	return [process.env.GITHUB_RUN_ID, process.env.GITHUB_RUN_ATTEMPT]
+		.filter(Boolean)
+		.join('-');
+}
+
 function resolveFrom(baseFile, candidate) {
 	if (!candidate) {
 		return '';
 	}
 
 	return path.normalize(path.join(path.dirname(baseFile), candidate)).replace(/\\/g, '/');
+}
+
+function fallbackTaskSetMetadata(id) {
+	const scope = id === 'smoke' ? 'demo' : 'pilot';
+
+	return {
+		id,
+		benchmark_status: scope,
+		benchmark: false,
+		headline_score_eligible: false,
+		aggregate_score: false,
+		score_scope: scope,
+		task_contract_level: id === 'custom' ? 'mixed_diagnostic' : 'wordpress_state_diagnostic',
+		benchmark_blockers: [`${scope}_task_set`, 'missing_baseline_results', 'uncalibrated_difficulty'],
+	};
+}
+
+function taskSetMetadata() {
+	const taskSet = currentTaskSetId();
+	if (taskSet === 'custom' || taskSet === 'smoke' || taskSet === 'all') {
+		return fallbackTaskSetMetadata(taskSet);
+	}
+
+	const manifest = readJson(`task-sets/${taskSet}.json`);
+
+	return {
+		id: manifest.id,
+		benchmark_status: manifest.benchmark_status || 'pilot',
+		benchmark: Boolean(manifest.benchmark),
+		headline_score_eligible: Boolean(manifest.headline_score_eligible),
+		aggregate_score: Boolean(manifest.aggregate_score),
+		score_scope: manifest.score_scope || manifest.benchmark_status || 'pilot',
+		task_contract_level: manifest.task_contract_level || 'mixed_diagnostic',
+		benchmark_blockers: manifest.benchmark_blockers || [],
+	};
 }
 
 function taskSetScenarioIds(taskSetFile) {
@@ -104,6 +160,8 @@ function smokeTask() {
 			status: 'demo',
 			benchmark_scope: 'demo',
 			headline_score_eligible: false,
+			task_contract_level: 'wordpress_state_diagnostic',
+			benchmark_blockers: ['demo_task', 'missing_action_replay', 'missing_baseline_results'],
 		},
 		maxTurns: 8,
 		stepBudget: 12,
@@ -145,9 +203,7 @@ function workspaceConfig(task, branchSlug) {
 		return '{}';
 	}
 
-	const runPrefix = [process.env.GITHUB_RUN_ID, process.env.GITHUB_RUN_ATTEMPT]
-		.filter(Boolean)
-		.join('-');
+	const runPrefix = runSegment();
 
 	return JSON.stringify({
 		enabled: true,
@@ -195,7 +251,7 @@ function pipelineStepPatches(task) {
 	return '[]';
 }
 
-function artifactExportConfig(task, provider) {
+function artifactExportConfig(task, provider, metadata) {
 	return JSON.stringify({
 		include_job_artifacts: true,
 		pr_title_template: `[wp-gym] {result_label} - {task_id} - {provider}/{model}`,
@@ -212,6 +268,16 @@ function artifactExportConfig(task, provider) {
 			'- **Success:** `{success}`',
 			'- **Reward:** `{reward}`',
 			'- **Score:** `{grade_score}` / `{grade_max_score}`',
+			'',
+			'## Benchmark Status',
+			'- **Task set:** `{task_set_id}`',
+			'- **Task set status:** `{task_set_benchmark_status}`',
+			'- **Score scope:** `{score_scope}`',
+			'- **Benchmark eligible:** `{benchmark_eligible}`',
+			'- **Aggregate score:** `{aggregate_score}`',
+			'- **Task contract:** `{task_contract_level}`',
+			'- **Run:** `{run_id}` attempt `{run_attempt}`',
+			'- **Blockers:** `{benchmark_blockers}`',
 			'',
 			'{result_table}',
 			'',
@@ -247,6 +313,15 @@ function artifactExportConfig(task, provider) {
 			provider: provider.provider,
 			model: provider.model,
 			model_label: `${provider.provider}/${provider.model}`,
+			task_set_id: metadata.taskSet.id,
+			task_set_benchmark_status: metadata.taskSet.benchmark_status,
+			score_scope: metadata.taskSet.score_scope,
+			benchmark_eligible: metadata.benchmarkEligible,
+			aggregate_score: metadata.taskSet.aggregate_score,
+			task_contract_level: task.calibration.task_contract_level || 'unknown',
+			run_id: metadata.runId,
+			run_attempt: metadata.runAttempt,
+			benchmark_blockers: metadata.benchmarkRejectReasons.join(', ') || 'none',
 		},
 		pr_template_paths: {
 			success: 'run.success',
@@ -271,11 +346,8 @@ function resolveTasks() {
 		tasks.set(task.id, task);
 	}
 
-	const taskSet = process.env.TASK_SET || 'first-live-run';
-	const explicitIds = (process.env.TASK_IDS || '')
-		.split(',')
-		.map((id) => id.trim())
-		.filter(Boolean);
+	const taskSet = currentTaskSetId();
+	const explicitIds = explicitTaskIds();
 
 	if (taskSet === 'custom' && explicitIds.length === 0) {
 		throw new Error('task_ids is required when task_set is custom.');
@@ -298,8 +370,59 @@ function resolveTasks() {
 	});
 }
 
+function benchmarkRejectReasons(task, taskSet) {
+	const calibration = task.calibration || {};
+	const reasons = [];
+
+	if (!taskSet.benchmark) {
+		reasons.push(`${taskSet.score_scope || 'pilot'}_task_set`);
+	}
+	if (taskSet.benchmark_status !== 'benchmark_ready') {
+		reasons.push(`task_set_status_${taskSet.benchmark_status || 'unknown'}`);
+	}
+	if (!taskSet.headline_score_eligible) {
+		reasons.push('task_set_not_headline_eligible');
+	}
+	if (!taskSet.aggregate_score) {
+		reasons.push('task_set_not_aggregate_score_eligible');
+	}
+	if (taskSet.score_scope !== 'benchmark') {
+		reasons.push(`score_scope_${taskSet.score_scope || 'unknown'}`);
+	}
+	if (calibration.status !== 'benchmark_ready') {
+		reasons.push(`scenario_status_${calibration.status || 'unknown'}`);
+	}
+	if (calibration.benchmark_scope !== 'benchmark') {
+		reasons.push(`scenario_scope_${calibration.benchmark_scope || 'unknown'}`);
+	}
+	if (!calibration.headline_score_eligible) {
+		reasons.push('scenario_not_headline_eligible');
+	}
+	if (calibration.difficulty_band === 'uncalibrated') {
+		reasons.push('uncalibrated_difficulty');
+	}
+	if (!Array.isArray(calibration.baseline_result_sets) || calibration.baseline_result_sets.length === 0) {
+		reasons.push('missing_baseline_results');
+	}
+	if (calibration.task_contract_level !== 'benchmark_replay') {
+		reasons.push(`task_contract_${calibration.task_contract_level || 'unknown'}`);
+	}
+	if (Array.isArray(calibration.benchmark_blockers)) {
+		reasons.push(...calibration.benchmark_blockers);
+	}
+	if (Array.isArray(taskSet.benchmark_blockers)) {
+		reasons.push(...taskSet.benchmark_blockers);
+	}
+
+	return [...new Set(reasons)].sort();
+}
+
 function resolveMatrix() {
 	const include = [];
+	const taskSet = taskSetMetadata();
+	const runId = process.env.GITHUB_RUN_ID || '';
+	const runAttempt = process.env.GITHUB_RUN_ATTEMPT || '';
+	const runPrefix = runSegment();
 
 	for (const task of resolveTasks()) {
 		const prompt = readText(task.promptFile);
@@ -309,7 +432,20 @@ function resolveMatrix() {
 
 		for (const provider of providers()) {
 			const branchSlug = `${task.id}-${provider.label}`.replace(/[^A-Za-z0-9_.-]+/g, '-');
+			const benchmarkRejectReasonList = benchmarkRejectReasons(task, taskSet);
+			const benchmarkEligible = benchmarkRejectReasonList.length === 0;
+			const artifactSuffix = runPrefix ? `${runPrefix}-${branchSlug}` : branchSlug;
+			const rowMetadata = {
+				taskSet,
+				benchmarkEligible,
+				benchmarkRejectReasons: benchmarkRejectReasonList,
+				runId,
+				runAttempt,
+			};
+
 			include.push({
+				task_set_id: taskSet.id,
+				task_set_benchmark_status: taskSet.benchmark_status,
 				task_id: task.id,
 				task_label: task.label,
 				provider: provider.provider,
@@ -326,14 +462,21 @@ function resolveMatrix() {
 				runner_workspace: workspaceConfig(task, branchSlug),
 				pipeline_step_patches: pipelineStepPatches(task),
 				flow_step_patches: flowStepPatches(task),
-				artifact_export_config: artifactExportConfig(task, provider),
+				artifact_export_config: artifactExportConfig(task, provider, rowMetadata),
 				max_turns: task.maxTurns,
 				step_budget: task.stepBudget,
 				time_budget_ms: task.timeBudgetMs,
 				calibration_status: task.calibration.status || 'unknown',
 				benchmark_scope: task.calibration.benchmark_scope || 'unknown',
 				headline_score_eligible: Boolean(task.calibration.headline_score_eligible),
-				artifact_suffix: branchSlug,
+				score_scope: taskSet.score_scope,
+				benchmark_eligible: benchmarkEligible,
+				aggregate_score: taskSet.aggregate_score,
+				task_contract_level: task.calibration.task_contract_level || 'unknown',
+				benchmark_reject_reasons: benchmarkRejectReasonList,
+				run_id: runId,
+				run_attempt: runAttempt,
+				artifact_suffix: artifactSuffix,
 			});
 		}
 	}
@@ -366,11 +509,8 @@ function sameSet(actual, expected, label) {
 }
 
 function checkExpectedShape(matrix, selectedTasks) {
-	const taskSet = process.env.TASK_SET || 'first-live-run';
-	const explicitIds = (process.env.TASK_IDS || '')
-		.split(',')
-		.map((id) => id.trim())
-		.filter(Boolean);
+	const taskSet = currentTaskSetId();
+	const explicitIds = explicitTaskIds();
 	const expectedByTaskSet = {
 		'first-live-run': { rows: 6, workspaceRows: 2 },
 		smoke: { rows: 2, workspaceRows: 0 },
@@ -392,6 +532,7 @@ function assertLiveRunMatrix(matrix) {
 	const selectedTasks = resolveTasks();
 	const tasksById = new Map(selectedTasks.map((task) => [task.id, task]));
 	const providerLabels = new Set(providers().map((provider) => provider.label));
+	const benchmarkMode = truthyEnv(process.env.BENCHMARK_MODE);
 
 	checkExpectedShape(matrix, selectedTasks);
 
@@ -410,7 +551,19 @@ function assertLiveRunMatrix(matrix) {
 		assert(row.calibration_status === (task.calibration.status || 'unknown'), `${row.task_id} calibration_status mismatch`);
 		assert(row.benchmark_scope === (task.calibration.benchmark_scope || 'unknown'), `${row.task_id} benchmark_scope mismatch`);
 		assert(row.headline_score_eligible === Boolean(task.calibration.headline_score_eligible), `${row.task_id} headline_score_eligible mismatch`);
+		assert(row.task_contract_level === (task.calibration.task_contract_level || 'unknown'), `${row.task_id} task_contract_level mismatch`);
 		assert(row.benchmark_scope !== 'benchmark' || row.headline_score_eligible === true, `${row.task_id} benchmark rows must be headline eligible`);
+		assert(Array.isArray(row.benchmark_reject_reasons), `${row.task_id} benchmark_reject_reasons must be an array`);
+		assert(
+			row.benchmark_eligible === (row.benchmark_reject_reasons.length === 0),
+			`${row.task_id} benchmark_eligible must match benchmark_reject_reasons`
+		);
+		if (benchmarkMode) {
+			assert(
+				row.benchmark_eligible === true,
+				`${row.task_id} ${row.provider_label} is not benchmark eligible: task_set=${row.task_set_id} status=${row.task_set_benchmark_status} score_scope=${row.score_scope} calibration_status=${row.calibration_status} benchmark_scope=${row.benchmark_scope} contract=${row.task_contract_level} reasons=${row.benchmark_reject_reasons.join(',')}`
+			);
+		}
 		assert(row.workload_run_after !== '[]', `${row.task_id} must run a grader`);
 
 		const pipelinePatches = parseJsonField(row, 'pipeline_step_patches');
@@ -419,6 +572,11 @@ function assertLiveRunMatrix(matrix) {
 		const artifactExport = parseJsonField(row, 'artifact_export_config');
 		assert(artifactExport.include_job_artifacts === true, `${row.task_id} must export job artifacts`);
 		assert(artifactExport.pr_template_values?.task_id === row.task_id, `${row.task_id} artifact export task id mismatch`);
+		assert(artifactExport.pr_template_values?.benchmark_eligible === row.benchmark_eligible, `${row.task_id} artifact export benchmark eligibility mismatch`);
+		assert(artifactExport.pr_template_values?.score_scope === row.score_scope, `${row.task_id} artifact export score scope mismatch`);
+		if (runSegment()) {
+			assert(row.artifact_suffix.startsWith(`${runSegment()}-`), `${row.task_id} artifact_suffix must include run id and attempt`);
+		}
 
 		if (!task.usesWorkspace) {
 			assert(row.success_requires_pr === false, `${row.task_id} non-workspace row must not require PR`);

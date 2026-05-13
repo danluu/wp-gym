@@ -32,6 +32,18 @@ const knownRewardTypes = new Set(['terminal_php_grader']);
 const knownCalibrationStatuses = new Set(['demo', 'pilot', 'calibrating', 'benchmark_ready', 'excluded']);
 const knownBenchmarkScopes = new Set(['demo', 'pilot', 'calibration', 'benchmark', 'excluded']);
 const knownDifficultyBands = new Set(['uncalibrated', 'smoke', 'easy', 'medium', 'hard']);
+const knownTaskContractLevels = new Set([
+	'wordpress_state_diagnostic',
+	'workspace_diff_diagnostic',
+	'benchmark_replay',
+]);
+const knownTaskSetContractLevels = new Set([
+	'mixed_diagnostic',
+	'wordpress_state_diagnostic',
+	'workspace_diff_diagnostic',
+	'benchmark_replay',
+]);
+const knownScoreScopes = new Set(['demo', 'pilot', 'calibration', 'benchmark', 'excluded']);
 
 function assertObject(value, label) {
 	if (!value || Array.isArray(value) || typeof value !== 'object') {
@@ -266,12 +278,22 @@ function validateScenarioContract(file, manifest) {
 	assertStringArray(manifest.calibration.known_shortcuts, `${file} calibration.known_shortcuts`, {
 		pattern: /^[a-z0-9_]+$/,
 	});
+	assertKnown(manifest.calibration.task_contract_level, knownTaskContractLevels, `${file} calibration.task_contract_level`);
+	assertStringArray(manifest.calibration.benchmark_blockers, `${file} calibration.benchmark_blockers`, {
+		pattern: /^[a-z0-9_]+$/,
+	});
 	if (manifest.calibration.status === 'benchmark_ready') {
 		if (!manifest.calibration.headline_score_eligible) {
 			throw new Error(`${file} benchmark_ready scenarios must be headline_score_eligible`);
 		}
 		if (manifest.calibration.baseline_result_sets.length < 1) {
 			throw new Error(`${file} benchmark_ready scenarios must declare baseline_result_sets`);
+		}
+		if (manifest.calibration.task_contract_level !== 'benchmark_replay') {
+			throw new Error(`${file} benchmark_ready scenarios must declare task_contract_level=benchmark_replay`);
+		}
+		if (manifest.calibration.benchmark_blockers.length > 0) {
+			throw new Error(`${file} benchmark_ready scenarios must not declare benchmark_blockers`);
 		}
 	}
 }
@@ -386,11 +408,39 @@ for (const file of taskSetFiles) {
 	if (manifest.benchmark_status !== undefined) {
 		assertKnown(manifest.benchmark_status, knownCalibrationStatuses, `${file} benchmark_status`);
 	}
+	if (typeof manifest.benchmark !== 'boolean') {
+		throw new Error(`${file} benchmark must be a boolean`);
+	}
 	if (
 		manifest.headline_score_eligible !== undefined &&
 		typeof manifest.headline_score_eligible !== 'boolean'
 	) {
 		throw new Error(`${file} headline_score_eligible must be a boolean`);
+	}
+	if (typeof manifest.aggregate_score !== 'boolean') {
+		throw new Error(`${file} aggregate_score must be a boolean`);
+	}
+	assertKnown(manifest.score_scope, knownScoreScopes, `${file} score_scope`);
+	assertKnown(manifest.task_contract_level, knownTaskSetContractLevels, `${file} task_contract_level`);
+	assertStringArray(manifest.benchmark_blockers, `${file} benchmark_blockers`, {
+		pattern: /^[a-z0-9_]+$/,
+	});
+	if (manifest.benchmark) {
+		if (manifest.benchmark_status !== 'benchmark_ready') {
+			throw new Error(`${file} benchmark task sets must declare benchmark_status=benchmark_ready`);
+		}
+		if (manifest.score_scope !== 'benchmark') {
+			throw new Error(`${file} benchmark task sets must declare score_scope=benchmark`);
+		}
+		if (!manifest.headline_score_eligible || !manifest.aggregate_score) {
+			throw new Error(`${file} benchmark task sets must be headline and aggregate score eligible`);
+		}
+		if (manifest.task_contract_level !== 'benchmark_replay') {
+			throw new Error(`${file} benchmark task sets must declare task_contract_level=benchmark_replay`);
+		}
+		if (manifest.benchmark_blockers.length > 0) {
+			throw new Error(`${file} benchmark task sets must not declare benchmark_blockers`);
+		}
 	}
 
 	if (!Array.isArray(manifest.tasks) || manifest.tasks.length < 1) {
@@ -442,6 +492,7 @@ for (const file of taskSetFiles) {
 }
 
 const phpFiles = [
+	path.join('scripts', 'run-block-markup-fixture.php'),
 	path.join('graders', 'block-markup', 'grader-common.php'),
 	path.join('graders', 'modern-wordpress-api', 'grader-common.php'),
 	...files.map(async (file) => {

@@ -157,6 +157,10 @@ This task set is a mixed pilot, not a headline benchmark. The current site and
 block-markup rows are useful for live-run coverage, but they are not
 benchmark-eligible until their WordPress action surface, calibration baselines,
 and adversarial reward fixtures are represented in the manifests and artifacts.
+The task set declares `benchmark: false`, `aggregate_score: false`, and
+`score_scope: "pilot"`. Matrix checks pass for pilot runs, but
+`BENCHMARK_MODE=1 TASK_SET=first-live-run node scripts/resolve-live-run-matrix.mjs --check`
+must fail closed until those blockers are removed.
 
 Selected tasks:
 

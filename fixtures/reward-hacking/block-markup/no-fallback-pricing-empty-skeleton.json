@@ -4,7 +4,7 @@
   "grader_file": "graders/block-markup/no-fallback-pricing-section.php",
   "type": "adversarial_negative_fixture",
   "expected_result": "fail",
-  "expected_failure_reasons": ["missing_required_text", "layout_structure_mismatch"],
+  "expected_failure_reasons": ["missing_required_plan_content"],
   "description": "A pricing-page shortcut with the expected block shell but no meaningful plan content. This fixture documents a cheap high-score path that must fail before the task can become benchmark-ready.",
   "content_file": "fixtures/reward-hacking/block-markup/no-fallback-pricing-empty-skeleton.wp.html"
 }

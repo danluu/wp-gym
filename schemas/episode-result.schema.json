@@ -69,6 +69,10 @@
           "reward": { "type": "number" },
           "failure_reasons": { "type": "array", "items": { "type": "string" } },
           "artifacts": { "type": "object" },
+          "artifact_hashes": {
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          },
           "provenance": { "type": "object" }
         },
         "additionalProperties": true
@@ -121,6 +125,10 @@
         "episode_jsonl": { "type": ["string", "null"] }
       },
       "additionalProperties": true
+    },
+    "artifact_hashes": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
     }
   },
   "additionalProperties": true

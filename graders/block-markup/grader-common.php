@@ -106,6 +106,7 @@ function wp_gym_failure_reason_for_check( array $check ): string {
 		'required_blocks_present'        => 'missing_required_blocks',
 		'three_pricing_columns'          => 'layout_structure_mismatch',
 		'buttons_for_plans'              => 'missing_required_cta',
+		'plan_columns_have_meaningful_content' => 'missing_required_plan_content',
 		'expected_group_columns_nesting' => 'layout_structure_mismatch',
 		'no_fallback_or_html_blocks'     => 'raw_html_or_fallback_block',
 		'no_fallback_or_raw_html'        => 'raw_html_or_fallback_block',

@@ -58,7 +58,9 @@
     "difficulty_band": "uncalibrated",
     "headline_score_eligible": false,
     "baseline_result_sets": [],
-    "known_shortcuts": ["hard_coded_clean_site_state", "extra_output_fields"]
+    "known_shortcuts": ["hard_coded_clean_site_state", "extra_output_fields"],
+    "task_contract_level": "workspace_diff_diagnostic",
+    "benchmark_blockers": ["missing_runner_workspace_policy_attestation", "missing_baseline_results", "uncalibrated_difficulty"]
   },
   "expected_artifacts": ["workspace_diff", "plugin_files", "grader_result"],
   "expected": {
