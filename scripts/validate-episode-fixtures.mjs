@@ -141,6 +141,44 @@ function localArtifactEntries(artifacts) {
 	return entries;
 }
 
+function assertLocalArtifactPath(file, label, artifactPath) {
+	const normalized = normalizePath(artifactPath);
+	const isWindowsAbsolutePath = /^[A-Za-z]:\//.test(normalized);
+	assert(
+		!path.isAbsolute(normalized) &&
+			!isWindowsAbsolutePath &&
+			!normalized.split('/').includes('..'),
+		'artifact_path_invalid',
+		`${file} ${label} must be a repo-relative path without traversal: ${artifactPath}`
+	);
+
+	return normalized;
+}
+
+function requiredEpisodeArtifacts(scenario) {
+	const required = ['transcript', 'replay_bundle', 'episode_jsonl'];
+	const environment = scenario.manifest.environment || {};
+	const expectedArtifacts = new Set(scenario.manifest.expected_artifacts || []);
+
+	if (environment.action_mode === 'workspace' || expectedArtifacts.has('workspace_diff')) {
+		required.push('workspace_diff');
+	}
+
+	return required;
+}
+
+function assertRequiredArtifact(file, artifacts, key) {
+	assert(
+		artifacts &&
+			typeof artifacts === 'object' &&
+			!Array.isArray(artifacts) &&
+			typeof artifacts[key] === 'string' &&
+			artifacts[key].length > 0,
+		'artifact_missing',
+		`${file} artifacts.${key} is required for replayable offline audit`
+	);
+}
+
 function expectedFailureReasons(checks) {
 	return [
 		...new Set(
@@ -178,6 +216,7 @@ async function validateArtifactHashes(file, artifacts, artifactHashes, label) {
 	const hashes = artifactHashes || {};
 
 	for (const [key, artifactPath] of localArtifactEntries(artifacts)) {
+		const safeArtifactPath = assertLocalArtifactPath(file, `${label}.${key}`, artifactPath);
 		assert(
 			Object.hasOwn(hashes, key),
 			'artifact_hash_missing',
@@ -185,7 +224,7 @@ async function validateArtifactHashes(file, artifacts, artifactHashes, label) {
 		);
 		assertHash(hashes[key], `${file} ${label}.artifact_hashes.${key}`);
 		assert(
-			hashes[key] === await fileSha256(artifactPath),
+			hashes[key] === await fileSha256(safeArtifactPath),
 			'artifact_hash_mismatch',
 			`${file} ${label}.${key} hash does not match ${artifactPath}`
 		);
@@ -243,8 +282,13 @@ async function validateEpisode(file, episode, scenarios, validateSchema) {
 	assertClose(episode.result.grade.score, totals.score, 'grade_score_mismatch', `${file} result.grade.score`);
 	assertClose(episode.result.grade.max_score, totals.maxScore, 'grade_max_score_mismatch', `${file} result.grade.max_score`);
 
+	for (const artifactKey of requiredEpisodeArtifacts(scenario)) {
+		assertRequiredArtifact(file, episode.artifacts, artifactKey);
+	}
+
 	for (const artifactPath of localArtifactPaths(episode.artifacts)) {
-		assert(existsSync(path.join(root, artifactPath)), `${file} artifact path does not exist: ${artifactPath}`);
+		const safeArtifactPath = assertLocalArtifactPath(file, 'artifacts', artifactPath);
+		assert(existsSync(path.join(root, safeArtifactPath)), `${file} artifact path does not exist: ${artifactPath}`);
 	}
 	await validateArtifactHashes(file, episode.artifacts, episode.artifact_hashes, 'artifacts');
 
@@ -275,7 +319,8 @@ async function validateEpisode(file, episode, scenarios, validateSchema) {
 			assertHash(step.result.workspace_diff_sha256, `${file} steps[${index}].result.workspace_diff_sha256`);
 		}
 		for (const artifactPath of localArtifactPaths(step.artifacts)) {
-			assert(existsSync(path.join(root, artifactPath)), `${file} steps[${index}] artifact path does not exist: ${artifactPath}`);
+			const safeArtifactPath = assertLocalArtifactPath(file, `steps[${index}].artifacts`, artifactPath);
+			assert(existsSync(path.join(root, safeArtifactPath)), `${file} steps[${index}] artifact path does not exist: ${artifactPath}`);
 		}
 		if (step.artifacts?.workspace_diff) {
 			assert(
@@ -290,7 +335,15 @@ async function validateEpisode(file, episode, scenarios, validateSchema) {
 		await validateArtifactHashes(file, episode.steps[index].artifacts, episode.steps[index].artifact_hashes, `steps[${index}].artifacts`);
 	}
 
-	const terminalGraderStep = [...episode.steps].reverse().find((step) => step.actor === 'grader');
+	const finalStep = episode.steps[episode.steps.length - 1];
+	const terminalGraderStep = finalStep?.actor === 'grader' ? finalStep : null;
+	if (environment.termination_policy?.type === 'terminal_grader') {
+		assert(
+			terminalGraderStep,
+			'terminal_grader_missing',
+			`${file} terminal_grader scenarios must end with a grader step`
+		);
+	}
 	if (terminalGraderStep) {
 		assertClose(terminalGraderStep.reward, episode.result.reward, 'terminal_grader_mismatch', `${file} terminal grader reward`);
 		assertArrayEqual(

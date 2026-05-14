@@ -60,12 +60,14 @@ function parse_blocks( string $content ): array {
 	foreach ( $matches[0] as $index => $match ) {
 		$is_close = '/' === $matches[1][ $index ][0];
 		$name     = wp_gym_fixture_block_name( $matches[2][ $index ][0] );
+		$offset   = $match[1];
 
 		if ( ! $is_close ) {
 			$stack[] = array(
-				'blockName'   => $name,
-				'innerHTML'   => '',
-				'innerBlocks' => array(),
+				'blockName'    => $name,
+				'innerHTML'    => '',
+				'innerBlocks'  => array(),
+				'contentStart' => $offset + strlen( $match[0] ),
 			);
 			continue;
 		}
@@ -74,6 +76,9 @@ function parse_blocks( string $content ): array {
 		if ( ! is_array( $block ) ) {
 			continue;
 		}
+
+		$block['innerHTML'] = substr( $content, $block['contentStart'], $offset - $block['contentStart'] );
+		unset( $block['contentStart'] );
 
 		if ( ! empty( $stack ) ) {
 			$parent_index = count( $stack ) - 1;
@@ -85,6 +90,9 @@ function parse_blocks( string $content ): array {
 
 	while ( ! empty( $stack ) ) {
 		$block = array_pop( $stack );
+		$block['innerHTML'] = substr( $content, $block['contentStart'] );
+		unset( $block['contentStart'] );
+
 		if ( ! empty( $stack ) ) {
 			$parent_index = count( $stack ) - 1;
 			$stack[ $parent_index ]['innerBlocks'][] = $block;

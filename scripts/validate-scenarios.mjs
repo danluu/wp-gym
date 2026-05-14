@@ -289,6 +289,9 @@ function validateScenarioContract(file, manifest) {
 		if (manifest.calibration.baseline_result_sets.length < 1) {
 			throw new Error(`${file} benchmark_ready scenarios must declare baseline_result_sets`);
 		}
+		if (manifest.calibration.known_shortcuts.length > 0) {
+			throw new Error(`${file} benchmark_ready scenarios must not declare known_shortcuts`);
+		}
 		if (manifest.calibration.task_contract_level !== 'benchmark_replay') {
 			throw new Error(`${file} benchmark_ready scenarios must declare task_contract_level=benchmark_replay`);
 		}

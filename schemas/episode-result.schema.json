@@ -3,7 +3,7 @@
   "$id": "https://raw.githubusercontent.com/Automattic/wp-gym/main/schemas/episode-result.schema.json",
   "title": "WP Gym episode result",
   "type": "object",
-  "required": ["schema_version", "scenario", "environment", "steps", "result", "provenance", "artifacts"],
+  "required": ["schema_version", "scenario", "environment", "steps", "result", "provenance", "artifacts", "artifact_hashes"],
   "properties": {
     "schema_version": { "type": "integer", "minimum": 1 },
     "scenario": {
@@ -71,7 +71,7 @@
           "artifacts": { "type": "object" },
           "artifact_hashes": {
             "type": "object",
-            "additionalProperties": { "type": "string" }
+            "additionalProperties": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
           },
           "provenance": { "type": "object" }
         },
@@ -118,17 +118,18 @@
     },
     "artifacts": {
       "type": "object",
+      "required": ["transcript", "replay_bundle", "episode_jsonl"],
       "properties": {
-        "transcript": { "type": ["string", "null"] },
-        "replay_bundle": { "type": ["string", "null"] },
+        "transcript": { "type": "string", "minLength": 1 },
+        "replay_bundle": { "type": "string", "minLength": 1 },
         "workspace_diff": { "type": ["string", "null"] },
-        "episode_jsonl": { "type": ["string", "null"] }
+        "episode_jsonl": { "type": "string", "minLength": 1 }
       },
       "additionalProperties": true
     },
     "artifact_hashes": {
       "type": "object",
-      "additionalProperties": { "type": "string" }
+      "additionalProperties": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
     }
   },
   "additionalProperties": true

@@ -404,6 +404,9 @@ function benchmarkRejectReasons(task, taskSet) {
 	if (!Array.isArray(calibration.baseline_result_sets) || calibration.baseline_result_sets.length === 0) {
 		reasons.push('missing_baseline_results');
 	}
+	if (Array.isArray(calibration.known_shortcuts) && calibration.known_shortcuts.length > 0) {
+		reasons.push('known_reward_shortcut');
+	}
 	if (calibration.task_contract_level !== 'benchmark_replay') {
 		reasons.push(`task_contract_${calibration.task_contract_level || 'unknown'}`);
 	}
@@ -558,6 +561,12 @@ function assertLiveRunMatrix(matrix) {
 			row.benchmark_eligible === (row.benchmark_reject_reasons.length === 0),
 			`${row.task_id} benchmark_eligible must match benchmark_reject_reasons`
 		);
+		if (Array.isArray(task.calibration.known_shortcuts) && task.calibration.known_shortcuts.length > 0) {
+			assert(
+				row.benchmark_reject_reasons.includes('known_reward_shortcut'),
+				`${row.task_id} known shortcuts must block benchmark eligibility`
+			);
+		}
 		if (benchmarkMode) {
 			assert(
 				row.benchmark_eligible === true,
