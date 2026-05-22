@@ -2,7 +2,7 @@
 
 Generated: 2026-05-20T16:45Z
 
-Code branch: `rl-env-review-checkpoint-003-rebase-merge-conflict`
+Code branch: [`rl-env-review-checkpoint-003-rebase-merge-conflict`](https://github.com/danluu/wp-gym/tree/rl-env-review-checkpoint-003-rebase-merge-conflict)
 Code branch head: `21ab74c` (`Add no-model gate to smoke CI`)
 Automattic trunk base: `ebaab5b` (`ci: expose agent runtime for live runs (#90)`)
 Report branch: `rl-env-review-reports`
